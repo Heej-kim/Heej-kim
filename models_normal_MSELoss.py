@@ -220,93 +220,138 @@ class ConvLSTM(nn.Module):
 
 
         seq_lengths = torch.tensor([images[i].shape[0] for i in range(0,len(images))]) #torch.tensor(len1, len2, ...)
-        seq_lengths_sorted, perm_idx = seq_lengths.sort(0,descending=True)
-        print(seq_lengths_sorted) #23, 21, 19, ,,,,,2
+        # seq_lengths_sorted, perm_idx = seq_lengths.sort(0,descending=True)
+        # print(seq_lengths_sorted) #23, 21, 19, ,,,,,2
 
-        perm_idx_reversed = torch.zeros(seq_lengths.shape[0])
+        # labels = [labels[i] for i in perm_idx]
+        
 
-        for i in range(0,seq_lengths_sorted.shape[0]):
-          for j in range(0, seq_lengths_sorted[i]):
-            perm_idx_reversed[i] = perm_idx_reversed[i] + 1
+        # seq_lengths_acc = torch.zeros(seq_lengths.max(), dtype = torch.int64)
+        # for i in range(0, seq_lengths.shape[0]):
+        #   for j in range(0, seq_lengths[i]):
+        #     seq_lengths_acc[j] += 1
 
-        print(perm_idx_reversed)
+        # #print("seq_lengths_acc ", seq_lengths_acc)
+
+        # #print("labels", labels) #256*seqlen
+        # new_labels = []
+
+        # for i in range(0,seq_lengths.max()): #seq_lengths_sorted.shape[0] = 256
+        #   new_label = [labels[j][i] for j in range(0,seq_lengths_acc[i])] #seq_lengths_sorted[i] = 22, 22, 17, ...
+        #   #0,0 , 1,0, , ...256,0
+        #   new_label = torch.stack(new_label)
+        #   new_labels.append(new_label)
+
+        #print("new_labels ", new_labels) #shape: max_seqlen * (256,256,...1)
 
         hidden_feature = [self.conv(image.cuda()) for image in images]
-        hidden_feature = [hidden_feature[i] for i in perm_idx] #sorted in decending order
-
-        outputs = []
 
         for i in range(0, len(images)):
           out, hidden_state, cell_state = self.lstm(hidden_feature[i], hidden_state, cell_state)#input : Seq, H=64     
    
 
-        first = torch.zeros(seq_lengths.max(),self.rnn_input_dim).cuda()
+        #first = torch.zeros(seq_lengths.max(),self.rnn_input_dim).cuda()
         #start = torch.zeros(1,1,self.rnn_input_dim).cuda() #1, batch_size, self.num_classes
-        #out, hidden_state, cell_state = self.lstm(start,hidden_state,cell_state)     
+        #out, hidden_state, cell_state = self.lstm(first,hidden_state,cell_state)  
+        outputs = []
+        #print(out.shape) #maxlen,26
+           
         #out.shape = batch_size, max_seqlen, vocab_size
+        #for B in range(0, len(images)): #batch size
+        #  print(labels[B])
 
-
+        #hidden_feature : batch size * (seqlen * 64)
+        
 
         if have_labels:
             # training code ...
-            #rnn_input = torch.nn.utils.rnn.pad_sequence(out) # for variable length batch ...
-            labels = [labels[i] for i in perm_idx] #sorted
-
-            
-
-            labels = labels[0].reshape(1, len(images[0]) + 1, -1).permute(1,0,2)
-            #labels : batch_size * (seqlen)
-            ##labels = sorted_labels.reshape(batch_size,seq_lengths.max() + 1,-1).permute(1,0,2)
             #label : batch_size * (seq_lengths)
-            
-            #want? seqlen, batch_size
-            #how?
+          for B in range(0, len(images)): #batch_size
+            out_B = []
+            out, hidden_state, cell_state = self.lstm(hidden_feature[B][0].unsqueeze(0),hidden_state,cell_state) #input : first word
+            out_B.append(out)            
+            teacher_forcing_ratio = 1 #0.5
+            for seqlen in range(1, hidden_feature[B].shape[0]): #1, seqlen
+              teacher_force = random.random() < teacher_forcing_ratio
+              if teacher_force:           
+                out = labels[B][seqlen]
+                out = F.one_hot(out.to(torch.int64),self.num_classes).unsqueeze(0)
+                out = out.float().cuda()
+                out = self.FC(out) #26->64                  
+                out, hidden_state, cell_state = self.lstm(out, hidden_state, cell_state) #initial LSTM
+                out_B.append(out)
+              else:
+                out = out.argmax(-1).reshape(-1)
+                out = F.one_hot(out.to(torch.int64),self.num_classes)
+                out = out.float().cuda()
+                out = self.FC(out) #26->64    
+                out, hidden_state, cell_state = self.lstm(out, hidden_state, cell_state)
+                out_B.append(out)
 
-            teacher_forcing_ratio = 0.5
-            out = self.FC(out)        
-#            for t in range(0,seq_lengths.max() - 1):
-            for t in range(0, len(images[0])-1):
-                out, hidden_state, cell_state = self.lstm(out,hidden_state,cell_state)
-                outputs[t+1] = out
-                teacher_force = random.random() < teacher_forcing_ratio
-                if teacher_force:
-                    out = labels[t].reshape(-1) #ex. tensor([11, 13, 15, 17])
-                    out = F.one_hot(out.to(torch.int64),self.num_classes).unsqueeze(0)
-                    out = out.float().cuda()
-                    out = self.FC(out) #26->64
-                else:
-                    out = out.argmax(-1).reshape(-1)  
-                    #print(out)          
-                    out = F.one_hot(out,self.num_classes).unsqueeze(0)
-                    out = out.float().cuda()
-                    out = self.FC(out)    
+            out_B = torch.stack(out_B)
+            outputs.append(out_B.squeeze())
+               
+                # out = labels[t]
+                # out = F.one_hot(out.to(torch.int64),self.num_classes).unsqueeze(0)
+                # out = out.float().cuda()
+                # out = self.FC(out) #26->64
+
+            # else:
+                
+            #     # out = out.argmax(-1).reshape(-1)  
+            #     # out = F.one_hot(out,self.num_classes).unsqueeze(0)
+            #     # out = out.float().cuda()
+            #     # out = self.FC(out)  
+            #     for B in range(0, len(images)): #batch_size
+            #       out_B = []
+            #       out, hidden_state, cell_state = self.lstm(hidden_feature[B][0], hidden_state, cell_state)
+            #       out_B.append(out)                   
+            #       for seqlen in range(1, hidden_feature[i].shape[0]):
+            #         out, hidden_state, cell_state = self.lstm(out, hidden_state, cell_state)
+            #         out_B.append(out)                   
+            #       out_B = torch.stack(out_B)
+            #       outputs.append(out_B) 
+
 
         else:
+          for B in range(0, len(images)): #batch_size
+            out_B = []
+            out, hidden_state, cell_state = self.lstm(hidden_feature[B][0].unsqueeze(0),hidden_state,cell_state)
+            out_B.append(out)            
+            for seqlen in range(1, hidden_feature[i].shape[0]):
+              out = out.argmax(-1).reshape(-1)
+              out = F.one_hot(out.to(torch.int64),self.num_classes)
+              out = out.float().cuda()              
+              out = self.FC(out) #26->64                  
+              out, hidden_state, cell_state = self.lstm(out, hidden_state, cell_state)
+              out_B.append(out)
+            out_B = torch.stack(out_B)
+            outputs.append(out)
+                         
             # evaluation code ...
             #rnn_input = torch.nn.utils.rnn.pad_sequence(out) # for variable length batch ...
-            out = self.FC(out).cuda()
-#            for t in range(0,seq_lengths.max() - 1):
-            for t in range(0, len(images[0])-1):
-                out, hidden_state, cell_state = self.lstm(out,hidden_state,cell_state)
-                outputs[t+1] = out
-                out = out.argmax(-1).reshape(-1)
-                out = F.one_hot(out,self.num_classes).unsqueeze(0)
-                out = out.float().cuda()
-                out = self.FC(out)        
+#             out = self.FC(out).cuda()
+# #            for t in range(0,seq_lengths.max() - 1):
+#             for t in range(0, len(images[0])-1):
+#                 out, hidden_state, cell_state = self.lstm(out,hidden_state,cell_state)
+#                 outputs.append(out)
+#                 out = out.argmax(-1).reshape(-1)
+#                 out = F.one_hot(out,self.num_classes).unsqueeze(0)
+#                 out = out.float().cuda()
+#                 out = self.FC(out)        
 
         #output.shape: seqlen_sum(all batch), hidden_size
-        #print(outputs.shape)
-        outputs = outputs.permute(1,0,2)
-      
+
+
+        #outputs = outputs.permute(1,0,2)
+     
 
 
         #print("output shape in ConvLSTM", outputs.shape)
 
-        outputs = [outputs[i] for i in range(outputs.shape[0])]
         
         ##############################################################################
         #                          END OF YOUR CODE                                  #
         ##############################################################################
 
         return outputs
-
