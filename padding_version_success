@@ -255,20 +255,21 @@ class ConvLSTM(nn.Module):
           #print(labels)
           labels_sorted = [labels[i] for i in perm_idx]
           labels_sorted = torch.nn.utils.rnn.pad_sequence(labels_sorted) # maxlen+1, batch_Size,  64       
-          
-          teacher_forcing_ratio = 0 # 0.5
+          #print(labels_sorted.shape)
+          teacher_forcing_ratio = 0.5 # 0.5
           out = self.FC(out)
           for t in range(0,seq_lengths.max() - 1):
             out, hidden_state, cell_state = self.lstm(out,hidden_state,cell_state)
             outputs.append(out)
             teacher_force = random.random() < teacher_forcing_ratio
             if teacher_force:
-                out = labels[t].reshape(-1)            
+                out = labels_sorted[t].reshape(-1)            
                 out = F.one_hot(out.to(torch.int64),self.num_classes).unsqueeze(0)
-                out = out.float()
+                out = out.float().cuda()
                 out = self.FC(out)
             else:
-                out = out.argmax(-1).reshape(-1)            
+                out = out.argmax(-1).reshape(-1)
+                #print("else",out.shape)            
                 out = F.one_hot(out,self.num_classes).unsqueeze(0)
                 out = out.float()
                 out = self.FC(out)   
@@ -303,6 +304,78 @@ class ConvLSTM(nn.Module):
         
         outputs = [new_outputs[i] for i in perm_idx_reverse]
 
+        #print(len(new_outputs)) #batch_size
+        #print([new_outputs[i].shape for i in range(0,len(new_outputs))]) #(seq, 26), ...
+
+
+            # out_B = []
+            # out_B.append(out)            
+            # teacher_forcing_ratio = 0.5 #0.5
+            # for seqlen in range(1, hidden_feature[B].shape[0]): #1, seqlen
+            #   teacher_force = random.random() < teacher_forcing_ratio
+            #   if teacher_force:           
+            #     out = labels[B][seqlen]
+            #     out = F.one_hot(out.to(torch.int64),self.num_classes).unsqueeze(0)
+            #     out = out.float().cuda()
+            #     out = self.FC(out) #26->64                  
+            #     out, hidden_state, cell_state = self.lstm(out, hidden_state, cell_state) #initial LSTM
+            #     out_B.append(out)
+            #   else:
+            #     out = out.argmax(-1).reshape(-1)
+            #     out = F.one_hot(out.to(torch.int64),self.num_classes)
+            #     out = out.float().cuda()
+            #     out = self.FC(out) #26->64    
+            #     out, hidden_state, cell_state = self.lstm(out, hidden_state, cell_state)
+            #     out_B.append(out)
+
+            # out_B = torch.stack(out_B)
+            # outputs.append(out_B.squeeze())
+               
+                # out = labels[t]
+                # out = F.one_hot(out.to(torch.int64),self.num_classes).unsqueeze(0)
+                # out = out.float().cuda()
+                # out = self.FC(out) #26->64
+
+            # else:
+                
+            #     # out = out.argmax(-1).reshape(-1)  
+            #     # out = F.one_hot(out,self.num_classes).unsqueeze(0)
+            #     # out = out.float().cuda()
+            #     # out = self.FC(out)  
+            #     for B in range(0, len(images)): #batch_size
+            #       out_B = []
+            #       out, hidden_state, cell_state = self.lstm(hidden_feature[B][0], hidden_state, cell_state)
+            #       out_B.append(out)                   
+            #       for seqlen in range(1, hidden_feature[i].shape[0]):
+            #         out, hidden_state, cell_state = self.lstm(out, hidden_state, cell_state)
+            #         out_B.append(out)                   
+            #       out_B = torch.stack(out_B)
+            #       outputs.append(out_B) 
+
+
+                         
+            # evaluation code ...
+            #rnn_input = torch.nn.utils.rnn.pad_sequence(out) # for variable length batch ...
+#             out = self.FC(out).cuda()
+# #            for t in range(0,seq_lengths.max() - 1):
+#             for t in range(0, len(images[0])-1):
+#                 out, hidden_state, cell_state = self.lstm(out,hidden_state,cell_state)
+#                 outputs.append(out)
+#                 out = out.argmax(-1).reshape(-1)
+#                 out = F.one_hot(out,self.num_classes).unsqueeze(0)
+#                 out = out.float().cuda()
+#                 out = self.FC(out)        
+
+        #output.shape: seqlen_sum(all batch), hidden_size
+
+
+        #outputs = outputs.permute(1,0,2)
+     
+
+
+        #print("output shape in ConvLSTM", outputs.shape)
+
+        
         ##############################################################################
         #                          END OF YOUR CODE                                  #
         ##############################################################################
